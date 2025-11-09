@@ -15,7 +15,22 @@ self.addEventListener('install', event => {
     caches.open(CACHE_NAME)
       .then(cache => {
         console.log('Opened cache');
-        return cache.addAll(urlsToCache);
+        // Only cache resources that exist
+        return Promise.allSettled(
+          urlsToCache.map(url => {
+            return fetch(url).then(response => {
+              if (response.ok) {
+                return cache.put(url, response);
+              } else {
+                console.log('Failed to cache:', url);
+                return Promise.resolve();
+              }
+            }).catch(error => {
+              console.log('Error caching:', url, error);
+              return Promise.resolve();
+            });
+          })
+        );
       })
   );
 });
