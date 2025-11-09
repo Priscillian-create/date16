@@ -191,14 +191,14 @@ async function saveDataToSupabase(table, data, id = null) {
         updateReports(section);
         updateUserStats(section);
         updateDepartmentStats(section);
-    } else if (table === 'salesData') {
+    } else if (table === 'sales_data') {  // FIXED: Changed from 'salesData' to 'sales_data'
         const section = id;
         if (section && salesData[section]) {
             salesData[section] = { ...salesData[section], ...data };
             updateReports(section);
             updateDepartmentStats(section);
         }
-    } else if (table === 'userData') {
+    } else if (table === 'user_data') {  // FIXED: Changed from 'userData' to 'user_data'
         const section = id;
         if (section && userData[section]) {
             userData[section] = { ...userData[section], ...data };
@@ -439,10 +439,10 @@ async function loadDataFromSupabase() {
                     });
             });
             
-            // Load sales data
+            // Load sales data - FIXED: Changed from 'salesData' to 'sales_data'
             sections.forEach(section => {
                 supabase
-                    .from('salesData')
+                    .from('sales_data')  // FIXED: Changed table name
                     .select('*')
                     .eq('id', section)
                     .single()
@@ -462,10 +462,10 @@ async function loadDataFromSupabase() {
                     });
             });
             
-            // Load user data
+            // Load user data - FIXED: Changed from 'userData' to 'user_data'
             sections.forEach(section => {
                 supabase
-                    .from('userData')
+                    .from('user_data')  // FIXED: Changed table name
                     .select('*')
                     .eq('id', section)
                     .single()
@@ -1353,9 +1353,9 @@ function completeCheckout() {
         userData[section].transactions += 1; 
         userData[section].sales += subtotal;
         
-        // Save updated stats
-        saveDataToSupabase('salesData', salesData[section], section);
-        saveDataToSupabase('userData', userData[section], section);
+        // Save updated stats - FIXED: Changed table names
+        saveDataToSupabase('sales_data', salesData[section], section);  // FIXED: Changed from 'salesData' to 'sales_data'
+        saveDataToSupabase('user_data', userData[section], section);    // FIXED: Changed from 'userData' to 'user_data'
         
         carts[section] = [];
         updateCart(section); 
