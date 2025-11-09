@@ -28,7 +28,7 @@ const carts = {
     'food': []
 };
 
-// FIXED: Initialize sales data with proper default values
+// Initialize sales data with proper default values
 const salesData = {
     'grill': { totalSales: 0, totalTransactions: 0, avgTransaction: 0, topItem: '-', dailySales: 0, dailyTransactions: 0 },
     'wholesale': { totalSales: 0, totalTransactions: 0, avgTransaction: 0, topItem: '-', dailySales: 0, dailyTransactions: 0 },
@@ -36,7 +36,7 @@ const salesData = {
     'food': { totalSales: 0, totalTransactions: 0, avgTransaction: 0, topItem: '-', dailySales: 0, dailyTransactions: 0 }
 };
 
-// FIXED: Initialize user data with proper default values
+// Initialize user data with proper default values
 const userData = {
     'grill': { transactions: 0, sales: 0 },
     'wholesale': { transactions: 0, sales: 0 },
@@ -147,7 +147,7 @@ function updateCategoryInventorySummary(section) {
     document.getElementById(`${section}-expired-count`).textContent = expiredCount;
 }
 
-// Save data to Supabase with offline support
+// FIXED: Enhanced saveDataToSupabase function with better persistence
 async function saveDataToSupabase(table, data, id = null) {
     // Add timestamp and user info
     data.timestamp = new Date().toISOString();
@@ -172,6 +172,8 @@ async function saveDataToSupabase(table, data, id = null) {
                 inventory[data.section][index] = { ...inventory[data.section][index], ...data };
             }
         }
+        // FIXED: Save inventory to local storage immediately
+        saveToLocalStorage(`inventory_${data.section}`, inventory[data.section]);
         loadInventoryTable(data.section);
         updateDepartmentStats(data.section);
         updateCategoryInventorySummary(data.section);
@@ -188,20 +190,28 @@ async function saveDataToSupabase(table, data, id = null) {
         userData[section].transactions += 1;
         userData[section].sales += data.total;
         
+        // FIXED: Save sales and user data to local storage immediately
+        saveToLocalStorage(`salesData_${section}`, salesData[section]);
+        saveToLocalStorage(`userData_${section}`, userData[section]);
+        
         updateReports(section);
         updateUserStats(section);
         updateDepartmentStats(section);
-    } else if (table === 'sales_data') {  // FIXED: Changed from 'salesData' to 'sales_data'
+    } else if (table === 'sales_data') {
         const section = id;
         if (section && salesData[section]) {
             salesData[section] = { ...salesData[section], ...data };
+            // FIXED: Save to local storage immediately
+            saveToLocalStorage(`salesData_${section}`, salesData[section]);
             updateReports(section);
             updateDepartmentStats(section);
         }
-    } else if (table === 'user_data') {  // FIXED: Changed from 'userData' to 'user_data'
+    } else if (table === 'user_data') {
         const section = id;
         if (section && userData[section]) {
             userData[section] = { ...userData[section], ...data };
+            // FIXED: Save to local storage immediately
+            saveToLocalStorage(`userData_${section}`, userData[section]);
             updateUserStats(section);
         }
     }
@@ -237,6 +247,8 @@ async function saveDataToSupabase(table, data, id = null) {
                         inventory[data.section][index].id = result.id;
                         inventory[data.section][index].isOffline = false;
                         localStorage.removeItem(localKey);
+                        // FIXED: Save updated inventory to local storage
+                        saveToLocalStorage(`inventory_${data.section}`, inventory[data.section]);
                     }
                 }
             }
@@ -317,7 +329,7 @@ function handleOfflineStatus() {
     showNotification('You\'re now offline. Changes will be saved locally.', 'warning');
 }
 
-// FIXED: Complete implementation of syncPendingChanges function
+// FIXED: Enhanced syncPendingChanges function
 async function syncPendingChanges() {
     document.getElementById('syncStatus').classList.add('show');
     const pendingChanges = loadFromLocalStorage('pendingChanges', {});
@@ -344,6 +356,8 @@ async function syncPendingChanges() {
                                     if (index !== -1) {
                                         inventory[data.section][index].id = result[0].id;
                                         inventory[data.section][index].isOffline = false;
+                                        // FIXED: Save updated inventory to local storage
+                                        saveToLocalStorage(`inventory_${data.section}`, inventory[data.section]);
                                     }
                                 }
                                 return result[0];
@@ -388,7 +402,7 @@ async function syncPendingChanges() {
     }
 }
 
-// Load data from Supabase and local storage
+// FIXED: Enhanced loadDataFromSupabase function with better data persistence
 async function loadDataFromSupabase() {
     // First load from local storage for immediate access
     sections.forEach(section => {
@@ -431,6 +445,7 @@ async function loadDataFromSupabase() {
                         }
                         
                         inventory[section] = data || [];
+                        // FIXED: Save to local storage immediately
                         saveToLocalStorage(`inventory_${section}`, inventory[section]);
                         loadInventoryTable(section);
                         updateDepartmentStats(section);
@@ -439,10 +454,10 @@ async function loadDataFromSupabase() {
                     });
             });
             
-            // Load sales data - FIXED: Changed from 'salesData' to 'sales_data'
+            // Load sales data
             sections.forEach(section => {
                 supabase
-                    .from('sales_data')  // FIXED: Changed table name
+                    .from('sales_data')
                     .select('*')
                     .eq('id', section)
                     .single()
@@ -454,7 +469,7 @@ async function loadDataFromSupabase() {
                         }
                         
                         if (data) {
-                            // FIXED: Ensure all properties exist with default values
+                            // Ensure all properties exist with default values
                             salesData[section] = {
                                 totalSales: data.totalSales || 0,
                                 totalTransactions: data.totalTransactions || 0,
@@ -463,17 +478,40 @@ async function loadDataFromSupabase() {
                                 dailySales: data.dailySales || 0,
                                 dailyTransactions: data.dailyTransactions || 0
                             };
+                            // FIXED: Save to local storage immediately
                             saveToLocalStorage(`salesData_${section}`, salesData[section]);
                             updateReports(section);
                             updateDepartmentStats(section);
+                        } else {
+                            // If no data exists, create initial record
+                            const initialSalesData = {
+                                id: section,
+                                totalSales: 0,
+                                totalTransactions: 0,
+                                avgTransaction: 0,
+                                topItem: '-',
+                                dailySales: 0,
+                                dailyTransactions: 0
+                            };
+                            supabase
+                                .from('sales_data')
+                                .insert(initialSalesData)
+                                .then(({ data, error }) => {
+                                    if (!error) {
+                                        salesData[section] = initialSalesData;
+                                        saveToLocalStorage(`salesData_${section}`, salesData[section]);
+                                        updateReports(section);
+                                        updateDepartmentStats(section);
+                                    }
+                                });
                         }
                     });
             });
             
-            // Load user data - FIXED: Changed from 'userData' to 'user_data'
+            // Load user data
             sections.forEach(section => {
                 supabase
-                    .from('user_data')  // FIXED: Changed table name
+                    .from('user_data')
                     .select('*')
                     .eq('id', section)
                     .single()
@@ -485,13 +523,31 @@ async function loadDataFromSupabase() {
                         }
                         
                         if (data) {
-                            // FIXED: Ensure all properties exist with default values
+                            // Ensure all properties exist with default values
                             userData[section] = {
                                 transactions: data.transactions || 0,
                                 sales: data.sales || 0
                             };
+                            // FIXED: Save to local storage immediately
                             saveToLocalStorage(`userData_${section}`, userData[section]);
                             updateUserStats(section);
+                        } else {
+                            // If no data exists, create initial record
+                            const initialUserData = {
+                                id: section,
+                                transactions: 0,
+                                sales: 0
+                            };
+                            supabase
+                                .from('user_data')
+                                .insert(initialUserData)
+                                .then(({ data, error }) => {
+                                    if (!error) {
+                                        userData[section] = initialUserData;
+                                        saveToLocalStorage(`userData_${section}`, userData[section]);
+                                        updateUserStats(section);
+                                    }
+                                });
                         }
                     });
             });
@@ -1254,6 +1310,7 @@ function deleteInventoryItem(section, itemId) {
             
             saveDataToSupabase('inventory', item, itemId).then(() => {
                 inventory[section] = inventory[section].filter(invItem => invItem.id !== itemId);
+                // FIXED: Save updated inventory to local storage
                 saveToLocalStorage(`inventory_${section}`, inventory[section]);
                 loadInventoryTable(section);
                 updateDepartmentStats(section);
@@ -1339,6 +1396,8 @@ function completeCheckout() {
         if (inventoryItem) {
             inventoryItem.stock -= item.quantity;
             inventoryItem.status = getProductStatus(inventoryItem);
+            // FIXED: Save updated inventory to local storage immediately
+            saveToLocalStorage(`inventory_${section}`, inventory[section]);
             saveDataToSupabase('inventory', inventoryItem, inventoryItem.id).catch(error => console.error('Error updating inventory:', error));
         }
     });
@@ -1365,9 +1424,9 @@ function completeCheckout() {
         userData[section].transactions += 1; 
         userData[section].sales += subtotal;
         
-        // Save updated stats - FIXED: Changed table names
-        saveDataToSupabase('sales_data', salesData[section], section);  // FIXED: Changed from 'salesData' to 'sales_data'
-        saveDataToSupabase('user_data', userData[section], section);    // FIXED: Changed from 'userData' to 'user_data'
+        // Save updated stats
+        saveDataToSupabase('sales_data', salesData[section], section);
+        saveDataToSupabase('user_data', userData[section], section);
         
         carts[section] = [];
         updateCart(section); 
