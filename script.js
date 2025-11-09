@@ -50,6 +50,38 @@ let currentView = 'pos';
 let currentFilter = 'all';
 let currentUser = null;
 
+// Load data from localStorage immediately
+function loadDataFromLocalStorage() {
+    sections.forEach(section => {
+        // Load inventory
+        const localInventory = loadFromLocalStorage(`inventory_${section}`, []);
+        if (localInventory.length > 0) {
+            inventory[section] = localInventory;
+        }
+        
+        // Load sales data
+        const localSalesData = loadFromLocalStorage(`salesData_${section}`);
+        if (localSalesData) {
+            salesData[section] = localSalesData;
+        }
+        
+        // Load user data
+        const localUserData = loadFromLocalStorage(`userData_${section}`);
+        if (localUserData) {
+            userData[section] = localUserData;
+        }
+        
+        // Load cart
+        const localCart = loadFromLocalStorage(`cart_${section}`, []);
+        if (localCart.length > 0) {
+            carts[section] = localCart;
+        }
+    });
+}
+
+// Call this immediately to load data from localStorage
+loadDataFromLocalStorage();
+
 // Generate unique ID for offline records
 function generateOfflineId() {
     return 'offline_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
@@ -172,7 +204,7 @@ async function saveDataToSupabase(table, data, id = null) {
                 inventory[data.section][index] = { ...inventory[data.section][index], ...data };
             }
         }
-        // FIXED: Save inventory to local storage immediately
+        // Save inventory to local storage immediately
         saveToLocalStorage(`inventory_${data.section}`, inventory[data.section]);
         loadInventoryTable(data.section);
         updateDepartmentStats(data.section);
@@ -190,7 +222,7 @@ async function saveDataToSupabase(table, data, id = null) {
         userData[section].transactions += 1;
         userData[section].sales += data.total;
         
-        // FIXED: Save sales and user data to local storage immediately
+        // Save sales and user data to local storage immediately
         saveToLocalStorage(`salesData_${section}`, salesData[section]);
         saveToLocalStorage(`userData_${section}`, userData[section]);
         
@@ -201,7 +233,6 @@ async function saveDataToSupabase(table, data, id = null) {
         const section = id;
         if (section && salesData[section]) {
             salesData[section] = { ...salesData[section], ...data };
-            // FIXED: Save to local storage immediately
             saveToLocalStorage(`salesData_${section}`, salesData[section]);
             updateReports(section);
             updateDepartmentStats(section);
@@ -210,7 +241,6 @@ async function saveDataToSupabase(table, data, id = null) {
         const section = id;
         if (section && userData[section]) {
             userData[section] = { ...userData[section], ...data };
-            // FIXED: Save to local storage immediately
             saveToLocalStorage(`userData_${section}`, userData[section]);
             updateUserStats(section);
         }
@@ -219,26 +249,36 @@ async function saveDataToSupabase(table, data, id = null) {
     // If online, try to save to Supabase
     if (navigator.onLine) {
         try {
+            console.log(`Saving to Supabase table: ${table}`);
             let result;
+            
             if (id && !id.startsWith('offline_')) {
                 // Update existing record
-                const { data, error } = await supabase
+                console.log(`Updating record with ID: ${id}`);
+                const { data: resultData, error } = await supabase
                     .from(table)
                     .update(data)
                     .eq('id', id)
                     .select();
                 
-                if (error) throw error;
-                result = data[0];
+                if (error) {
+                    console.error(`Error updating ${table}:`, error);
+                    throw error;
+                }
+                result = resultData[0];
             } else {
                 // Insert new record
-                const { data, error } = await supabase
+                console.log(`Inserting new record into ${table}`);
+                const { data: resultData, error } = await supabase
                     .from(table)
                     .insert(data)
                     .select();
                 
-                if (error) throw error;
-                result = data[0];
+                if (error) {
+                    console.error(`Error inserting into ${table}:`, error);
+                    throw error;
+                }
+                result = resultData[0];
                 
                 // Update the local data with the real ID
                 if (table === 'inventory') {
@@ -247,14 +287,17 @@ async function saveDataToSupabase(table, data, id = null) {
                         inventory[data.section][index].id = result.id;
                         inventory[data.section][index].isOffline = false;
                         localStorage.removeItem(localKey);
-                        // FIXED: Save updated inventory to local storage
                         saveToLocalStorage(`inventory_${data.section}`, inventory[data.section]);
                     }
                 }
             }
+            
+            console.log(`Successfully saved to ${table}:`, result);
             return result;
         } catch (error) {
-            console.error('Error saving to Supabase:', error);
+            console.error(`Error saving to ${table}:`, error);
+            showNotification(`Error saving to ${table}: ${error.message}`, 'error');
+            
             // Store for later sync
             const pendingChanges = loadFromLocalStorage('pendingChanges', {});
             if (!pendingChanges[table]) pendingChanges[table] = {};
@@ -331,10 +374,16 @@ function handleOfflineStatus() {
 
 // FIXED: Enhanced syncPendingChanges function
 async function syncPendingChanges() {
+    if (!navigator.onLine) {
+        console.log('Offline mode, skipping sync');
+        return;
+    }
+    
     document.getElementById('syncStatus').classList.add('show');
     const pendingChanges = loadFromLocalStorage('pendingChanges', {});
     
     if (Object.keys(pendingChanges).length > 0) {
+        console.log('Syncing pending changes:', pendingChanges);
         const promises = [];
         
         // Process each table with pending changes
@@ -348,7 +397,12 @@ async function syncPendingChanges() {
                             .insert(data)
                             .select()
                             .then(({ data: result, error }) => {
-                                if (error) throw error;
+                                if (error) {
+                                    console.error(`Error syncing new ${table} record:`, error);
+                                    throw error;
+                                }
+                                
+                                console.log(`Successfully synced new ${table} record:`, result);
                                 
                                 // Update local data with real ID
                                 if (table === 'inventory') {
@@ -356,7 +410,6 @@ async function syncPendingChanges() {
                                     if (index !== -1) {
                                         inventory[data.section][index].id = result[0].id;
                                         inventory[data.section][index].isOffline = false;
-                                        // FIXED: Save updated inventory to local storage
                                         saveToLocalStorage(`inventory_${data.section}`, inventory[data.section]);
                                     }
                                 }
@@ -377,7 +430,12 @@ async function syncPendingChanges() {
                             .eq('id', id)
                             .select()
                             .then(({ data: result, error }) => {
-                                if (error) throw error;
+                                if (error) {
+                                    console.error(`Error syncing ${table} record ${id}:`, error);
+                                    throw error;
+                                }
+                                
+                                console.log(`Successfully synced ${table} record ${id}:`, result);
                                 return result[0];
                             })
                     );
@@ -404,165 +462,163 @@ async function syncPendingChanges() {
 
 // FIXED: Enhanced loadDataFromSupabase function with better data persistence
 async function loadDataFromSupabase() {
-    // First load from local storage for immediate access
-    sections.forEach(section => {
-        const localInventory = loadFromLocalStorage(`inventory_${section}`, []);
-        if (localInventory.length > 0) {
-            inventory[section] = localInventory;
-            loadInventoryTable(section);
-            updateDepartmentStats(section);
-            updateCategoryInventorySummary(section);
-        }
-        
-        const localSalesData = loadFromLocalStorage(`salesData_${section}`);
-        if (localSalesData) {
-            salesData[section] = localSalesData;
-            updateReports(section);
-            updateDepartmentStats(section);
-        }
-        
-        const localUserData = loadFromLocalStorage(`userData_${section}`);
-        if (localUserData) {
-            userData[section] = localUserData;
-            updateUserStats(section);
-        }
-    });
-    
-    // Then try to load from Supabase if online
-    if (navigator.onLine) {
-        try {
-            // Load inventory
-            sections.forEach(section => {
-                supabase
-                    .from('inventory')
-                    .select('*')
-                    .eq('section', section)
-                    .then(({ data, error }) => {
-                        if (error) {
-                            console.error(`Error loading ${section} inventory:`, error);
-                            showNotification(`Error loading ${section} inventory. Using cached data.`, 'warning');
-                            return;
-                        }
-                        
-                        inventory[section] = data || [];
-                        // FIXED: Save to local storage immediately
-                        saveToLocalStorage(`inventory_${section}`, inventory[section]);
-                        loadInventoryTable(section);
-                        updateDepartmentStats(section);
-                        updateCategoryInventorySummary(section);
-                        updateTotalInventory();
-                    });
-            });
-            
-            // Load sales data
-            sections.forEach(section => {
-                supabase
-                    .from('sales_data')
-                    .select('*')
-                    .eq('id', section)
-                    .single()
-                    .then(({ data, error }) => {
-                        if (error && error.code !== 'PGRST116') { // Not found error
-                            console.error(`Error loading ${section} sales data:`, error);
-                            showNotification(`Error loading ${section} sales data. Using cached data.`, 'warning');
-                            return;
-                        }
-                        
-                        if (data) {
-                            // Ensure all properties exist with default values
-                            salesData[section] = {
-                                totalSales: data.totalSales || 0,
-                                totalTransactions: data.totalTransactions || 0,
-                                avgTransaction: data.avgTransaction || 0,
-                                topItem: data.topItem || '-',
-                                dailySales: data.dailySales || 0,
-                                dailyTransactions: data.dailyTransactions || 0
-                            };
-                            // FIXED: Save to local storage immediately
-                            saveToLocalStorage(`salesData_${section}`, salesData[section]);
-                            updateReports(section);
-                            updateDepartmentStats(section);
-                        } else {
-                            // If no data exists, create initial record
-                            const initialSalesData = {
-                                id: section,
-                                totalSales: 0,
-                                totalTransactions: 0,
-                                avgTransaction: 0,
-                                topItem: '-',
-                                dailySales: 0,
-                                dailyTransactions: 0
-                            };
-                            supabase
-                                .from('sales_data')
-                                .insert(initialSalesData)
-                                .then(({ data, error }) => {
-                                    if (!error) {
-                                        salesData[section] = initialSalesData;
-                                        saveToLocalStorage(`salesData_${section}`, salesData[section]);
-                                        updateReports(section);
-                                        updateDepartmentStats(section);
-                                    }
-                                });
-                        }
-                    });
-            });
-            
-            // Load user data
-            sections.forEach(section => {
-                supabase
-                    .from('user_data')
-                    .select('*')
-                    .eq('id', section)
-                    .single()
-                    .then(({ data, error }) => {
-                        if (error && error.code !== 'PGRST116') { // Not found error
-                            console.error(`Error loading ${section} user data:`, error);
-                            showNotification(`Error loading ${section} user data. Using cached data.`, 'warning');
-                            return;
-                        }
-                        
-                        if (data) {
-                            // Ensure all properties exist with default values
-                            userData[section] = {
-                                transactions: data.transactions || 0,
-                                sales: data.sales || 0
-                            };
-                            // FIXED: Save to local storage immediately
-                            saveToLocalStorage(`userData_${section}`, userData[section]);
-                            updateUserStats(section);
-                        } else {
-                            // If no data exists, create initial record
-                            const initialUserData = {
-                                id: section,
-                                transactions: 0,
-                                sales: 0
-                            };
-                            supabase
-                                .from('user_data')
-                                .insert(initialUserData)
-                                .then(({ data, error }) => {
-                                    if (!error) {
-                                        userData[section] = initialUserData;
-                                        saveToLocalStorage(`userData_${section}`, userData[section]);
-                                        updateUserStats(section);
-                                    }
-                                });
-                        }
-                    });
-            });
-        } catch (error) {
-            console.error('Error loading data from Supabase:', error);
-            showNotification('Error loading data from server. Using cached data.', 'warning');
-        }
+    if (!navigator.onLine) {
+        console.log('Offline mode, skipping Supabase load');
+        return;
     }
     
-    // Update total inventory after loading all sections
-    updateTotalInventory();
+    try {
+        console.log('Loading data from Supabase...');
+        
+        // Load inventory
+        sections.forEach(section => {
+            supabase
+                .from('inventory')
+                .select('*')
+                .eq('section', section)
+                .then(({ data, error }) => {
+                    if (error) {
+                        console.error(`Error loading ${section} inventory:`, error);
+                        showNotification(`Error loading ${section} inventory. Using cached data.`, 'warning');
+                        return;
+                    }
+                    
+                    console.log(`Loaded ${section} inventory:`, data);
+                    inventory[section] = data || [];
+                    saveToLocalStorage(`inventory_${section}`, inventory[section]);
+                    loadInventoryTable(section);
+                    updateDepartmentStats(section);
+                    updateCategoryInventorySummary(section);
+                    updateTotalInventory();
+                });
+        });
+        
+        // Load sales data
+        sections.forEach(section => {
+            supabase
+                .from('sales_data')
+                .select('*')
+                .eq('id', section)
+                .single()
+                .then(({ data, error }) => {
+                    if (error && error.code !== 'PGRST116') { // Not found error
+                        console.error(`Error loading ${section} sales data:`, error);
+                        showNotification(`Error loading ${section} sales data. Using cached data.`, 'warning');
+                        return;
+                    }
+                    
+                    console.log(`Loaded ${section} sales data:`, data);
+                    if (data) {
+                        salesData[section] = {
+                            totalSales: data.totalSales || 0,
+                            totalTransactions: data.totalTransactions || 0,
+                            avgTransaction: data.avgTransaction || 0,
+                            topItem: data.topItem || '-',
+                            dailySales: data.dailySales || 0,
+                            dailyTransactions: data.dailyTransactions || 0
+                        };
+                        saveToLocalStorage(`salesData_${section}`, salesData[section]);
+                        updateReports(section);
+                        updateDepartmentStats(section);
+                    } else {
+                        // If no data exists, create initial record
+                        const initialSalesData = {
+                            id: section,
+                            totalSales: 0,
+                            totalTransactions: 0,
+                            avgTransaction: 0,
+                            topItem: '-',
+                            dailySales: 0,
+                            dailyTransactions: 0
+                        };
+                        supabase
+                            .from('sales_data')
+                            .insert(initialSalesData)
+                            .then(({ data, error }) => {
+                                if (!error) {
+                                    salesData[section] = initialSalesData;
+                                    saveToLocalStorage(`salesData_${section}`, salesData[section]);
+                                    updateReports(section);
+                                    updateDepartmentStats(section);
+                                }
+                            });
+                    }
+                });
+        });
+        
+        // Load user data
+        sections.forEach(section => {
+            supabase
+                .from('user_data')
+                .select('*')
+                .eq('id', section)
+                .single()
+                .then(({ data, error }) => {
+                    if (error && error.code !== 'PGRST116') { // Not found error
+                        console.error(`Error loading ${section} user data:`, error);
+                        showNotification(`Error loading ${section} user data. Using cached data.`, 'warning');
+                        return;
+                    }
+                    
+                    console.log(`Loaded ${section} user data:`, data);
+                    if (data) {
+                        userData[section] = {
+                            transactions: data.transactions || 0,
+                            sales: data.sales || 0
+                        };
+                        saveToLocalStorage(`userData_${section}`, userData[section]);
+                        updateUserStats(section);
+                    } else {
+                        // If no data exists, create initial record
+                        const initialUserData = {
+                            id: section,
+                            transactions: 0,
+                            sales: 0
+                        };
+                        supabase
+                            .from('user_data')
+                            .insert(initialUserData)
+                            .then(({ data, error }) => {
+                                if (!error) {
+                                    userData[section] = initialUserData;
+                                    saveToLocalStorage(`userData_${section}`, userData[section]);
+                                    updateUserStats(section);
+                                }
+                            });
+                    }
+                });
+        });
+    } catch (error) {
+        console.error('Error loading data from Supabase:', error);
+        showNotification('Error loading data from server. Using cached data.', 'warning');
+    }
 }
 
 // --- EVENT LISTENERS (REFACTORED) ---
 document.addEventListener('DOMContentLoaded', function() {
+    // Check if user is already authenticated
+    supabase.auth.getSession().then(({ data: { session } }) => {
+        if (session) {
+            currentUser = session.user;
+            document.getElementById('loginScreen').style.display = 'none';
+            document.getElementById('mainApp').style.display = 'block';
+            updateUserInfo(session.user);
+            
+            // Initialize the app with already loaded data
+            initializeApp();
+            
+            // Then try to sync with Supabase
+            loadDataFromSupabase();
+            
+            // Set up online/offline listeners
+            window.addEventListener('online', handleOnlineStatus);
+            window.addEventListener('offline', handleOfflineStatus);
+        } else {
+            document.getElementById('loginScreen').style.display = 'flex';
+            document.getElementById('mainApp').style.display = 'none';
+        }
+    });
+    
     // Login form
     document.getElementById('emailLoginForm').addEventListener('submit', function(e) {
         e.preventDefault();
@@ -1310,7 +1366,6 @@ function deleteInventoryItem(section, itemId) {
             
             saveDataToSupabase('inventory', item, itemId).then(() => {
                 inventory[section] = inventory[section].filter(invItem => invItem.id !== itemId);
-                // FIXED: Save updated inventory to local storage
                 saveToLocalStorage(`inventory_${section}`, inventory[section]);
                 loadInventoryTable(section);
                 updateDepartmentStats(section);
@@ -1325,15 +1380,27 @@ function deleteInventoryItem(section, itemId) {
     }
 }
 
+// FIXED: Enhanced cart functions to save to localStorage
 function addToCart(section, item) {
-    if (item.stock <= 0) { showNotification(`${item.name} is out of stock`, 'error'); return; }
+    if (item.stock <= 0) { 
+        showNotification(`${item.name} is out of stock`, 'error'); 
+        return; 
+    }
+    
     const existingItem = carts[section].find(cartItem => cartItem.id === item.id);
     if (existingItem) {
-        if (existingItem.quantity >= item.stock) { showNotification(`Cannot add more ${item.name}. Only ${item.stock} in stock.`, 'warning'); return; }
+        if (existingItem.quantity >= item.stock) { 
+            showNotification(`Cannot add more ${item.name}. Only ${item.stock} in stock.`, 'warning'); 
+            return; 
+        }
         existingItem.quantity += 1;
     } else {
         carts[section].push({ id: item.id, name: item.name, price: item.price, quantity: 1 });
     }
+    
+    // Save cart to local storage
+    saveToLocalStorage(`cart_${section}`, carts[section]);
+    
     updateCart(section); 
     showNotification(`${item.name} added to cart`, 'success');
 }
@@ -1343,6 +1410,10 @@ function incrementQuantity(section, itemId) {
     const inventoryItem = inventory[section].find(invItem => invItem.id === itemId);
     if (item && inventoryItem && item.quantity < inventoryItem.stock) { 
         item.quantity += 1; 
+        
+        // Save cart to local storage
+        saveToLocalStorage(`cart_${section}`, carts[section]);
+        
         updateCart(section); 
     }
     else if (item && inventoryItem) { 
@@ -1354,12 +1425,20 @@ function decrementQuantity(section, itemId) {
     const item = carts[section].find(cartItem => cartItem.id === itemId);
     if (item && item.quantity > 1) { 
         item.quantity -= 1; 
+        
+        // Save cart to local storage
+        saveToLocalStorage(`cart_${section}`, carts[section]);
+        
         updateCart(section); 
     }
 }
 
 function removeFromCart(section, itemId) {
     carts[section] = carts[section].filter(cartItem => cartItem.id !== itemId);
+    
+    // Save cart to local storage
+    saveToLocalStorage(`cart_${section}`, carts[section]);
+    
     updateCart(section);
 }
 
@@ -1383,11 +1462,13 @@ function processCheckout(section) {
     checkoutModal.classList.add('active');
 }
 
+// FIXED: Enhanced completeCheckout function
 function completeCheckout() {
     const checkoutModal = document.getElementById('checkoutModal');
     const section = checkoutModal.getAttribute('data-section');
     let subtotal = 0; 
     const saleItems = [];
+    
     carts[section].forEach(item => {
         const itemTotal = item.price * item.quantity; 
         subtotal += itemTotal;
@@ -1396,11 +1477,11 @@ function completeCheckout() {
         if (inventoryItem) {
             inventoryItem.stock -= item.quantity;
             inventoryItem.status = getProductStatus(inventoryItem);
-            // FIXED: Save updated inventory to local storage immediately
             saveToLocalStorage(`inventory_${section}`, inventory[section]);
             saveDataToSupabase('inventory', inventoryItem, inventoryItem.id).catch(error => console.error('Error updating inventory:', error));
         }
     });
+    
     const saleRecord = {
         user_id: currentUser ? currentUser.id : 'offline_user', 
         user_email: currentUser ? currentUser.email : 'offline@example.com', 
@@ -1428,7 +1509,10 @@ function completeCheckout() {
         saveDataToSupabase('sales_data', salesData[section], section);
         saveDataToSupabase('user_data', userData[section], section);
         
+        // Clear cart and remove from local storage
         carts[section] = [];
+        saveToLocalStorage(`cart_${section}`, []);
+        
         updateCart(section); 
         loadInventoryTable(section); 
         updateReports(section);
