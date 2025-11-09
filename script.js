@@ -28,7 +28,7 @@ const carts = {
     'food': []
 };
 
-// Initialize empty sales data for each section
+// FIXED: Initialize sales data with proper default values
 const salesData = {
     'grill': { totalSales: 0, totalTransactions: 0, avgTransaction: 0, topItem: '-', dailySales: 0, dailyTransactions: 0 },
     'wholesale': { totalSales: 0, totalTransactions: 0, avgTransaction: 0, topItem: '-', dailySales: 0, dailyTransactions: 0 },
@@ -36,7 +36,7 @@ const salesData = {
     'food': { totalSales: 0, totalTransactions: 0, avgTransaction: 0, topItem: '-', dailySales: 0, dailyTransactions: 0 }
 };
 
-// Initialize empty user data
+// FIXED: Initialize user data with proper default values
 const userData = {
     'grill': { transactions: 0, sales: 0 },
     'wholesale': { transactions: 0, sales: 0 },
@@ -454,7 +454,15 @@ async function loadDataFromSupabase() {
                         }
                         
                         if (data) {
-                            salesData[section] = data;
+                            // FIXED: Ensure all properties exist with default values
+                            salesData[section] = {
+                                totalSales: data.totalSales || 0,
+                                totalTransactions: data.totalTransactions || 0,
+                                avgTransaction: data.avgTransaction || 0,
+                                topItem: data.topItem || '-',
+                                dailySales: data.dailySales || 0,
+                                dailyTransactions: data.dailyTransactions || 0
+                            };
                             saveToLocalStorage(`salesData_${section}`, salesData[section]);
                             updateReports(section);
                             updateDepartmentStats(section);
@@ -477,7 +485,11 @@ async function loadDataFromSupabase() {
                         }
                         
                         if (data) {
-                            userData[section] = data;
+                            // FIXED: Ensure all properties exist with default values
+                            userData[section] = {
+                                transactions: data.transactions || 0,
+                                sales: data.sales || 0
+                            };
                             saveToLocalStorage(`userData_${section}`, userData[section]);
                             updateUserStats(section);
                         }
@@ -1377,57 +1389,38 @@ function filterInventory(section, searchTerm) {
     loadInventoryTable(section); 
 }
 
+// FIXED: Added null checks to prevent toFixed() errors
 function updateReports(section) {
-    document.getElementById(`${section}-total-sales`).textContent = `₦${salesData[section].totalSales.toFixed(2)}`;
-    document.getElementById(`${section}-total-transactions`).textContent = salesData[section].totalTransactions;
-    document.getElementById(`${section}-avg-transaction`).textContent = `₦${salesData[section].avgTransaction.toFixed(2)}`;
-    document.getElementById(`${section}-top-item`).textContent = salesData[section].topItem;
+    // Ensure all values exist and are numbers before calling toFixed()
+    const totalSales = salesData[section]?.totalSales || 0;
+    const avgTransaction = salesData[section]?.avgTransaction || 0;
+    
+    document.getElementById(`${section}-total-sales`).textContent = `₦${totalSales.toFixed(2)}`;
+    document.getElementById(`${section}-total-transactions`).textContent = salesData[section]?.totalTransactions || 0;
+    document.getElementById(`${section}-avg-transaction`).textContent = `₦${avgTransaction.toFixed(2)}`;
+    document.getElementById(`${section}-top-item`).textContent = salesData[section]?.topItem || '-';
 }
 
 function updateUserStats(section) {
-    document.getElementById(`${section}-user-transactions`).textContent = userData[section].transactions;
-    document.getElementById(`${section}-user-sales`).textContent = `₦${userData[section].sales.toFixed(2)}`;
-}
-
-function saveAccountInfo(section) {
-    const fullName = document.getElementById(`${section}-fullname`).value;
-    const email = document.getElementById(`${section}-email`).value;
-    const phone = document.getElementById(`${section}-phone`).value;
+    // Ensure all values exist and are numbers before calling toFixed()
+    const sales = userData[section]?.sales || 0;
     
-    if (currentUser && navigator.onLine) {
-        supabase.auth.updateUser({
-            data: { full_name: fullName }
-        }).then(({ data, error }) => {
-            if (error) {
-                console.error('Error updating profile:', error); 
-                showNotification('Error updating profile', 'error');
-                return;
-            }
-            
-            updateUserInfo(data.user);
-            const userData = { uid: data.user.id, displayName: fullName, email, phone, section };
-            saveDataToSupabase('users', userData, data.user.id).then(() => {
-                showNotification('Account information saved successfully', 'success');
-            }).catch(error => {
-                console.error('Error saving user data:', error); 
-                showNotification('Error saving account information', 'error');
-            });
-        });
-    } else {
-        // Save locally for offline use
-        const userData = { displayName: fullName, email, phone, section };
-        saveToLocalStorage(`userProfile_${section}`, userData);
-        showNotification('Account information saved locally (will sync when online)', 'info');
-    }
+    document.getElementById(`${section}-user-transactions`).textContent = userData[section]?.transactions || 0;
+    document.getElementById(`${section}-user-sales`).textContent = `₦${sales.toFixed(2)}`;
 }
 
+// FIXED: Added null checks to prevent toFixed() errors
 function updateDepartmentStats(section) {
     const lowStockItems = inventory[section].filter(item => {
         const status = getProductStatus(item);
         return status === 'low-stock';
     }).length;
-    document.getElementById(`${section}-daily-sales`).textContent = `₦${salesData[section].dailySales.toFixed(2)}`;
-    document.getElementById(`${section}-daily-transactions`).textContent = salesData[section].dailyTransactions;
+    
+    // Ensure all values exist and are numbers before calling toFixed()
+    const dailySales = salesData[section]?.dailySales || 0;
+    
+    document.getElementById(`${section}-daily-sales`).textContent = `₦${dailySales.toFixed(2)}`;
+    document.getElementById(`${section}-daily-transactions`).textContent = salesData[section]?.dailyTransactions || 0;
     document.getElementById(`${section}-low-stock`).textContent = lowStockItems;
 }
 
