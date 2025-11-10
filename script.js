@@ -179,6 +179,9 @@ function updateCategoryInventorySummary(section) {
     document.getElementById(`${section}-expired-count`).textContent = expiredCount;
 }
 
+// ===================================================================
+// UPDATED FUNCTION: saveDataToSupabase
+// ===================================================================
 // FIXED: Enhanced saveDataToSupabase function with better persistence
 async function saveDataToSupabase(table, data, id = null) {
     // Add timestamp and user info
@@ -195,7 +198,7 @@ async function saveDataToSupabase(table, data, id = null) {
             // New item - generate temporary ID
             id = generateOfflineId();
             data.id = id;
-            data.isOffline = true;
+            data.isOffline = true; // This is for local tracking only
             inventory[data.section].push(data);
         } else {
             // Update existing item
@@ -250,6 +253,16 @@ async function saveDataToSupabase(table, data, id = null) {
     if (navigator.onLine) {
         try {
             console.log(`Saving to Supabase table: ${table}`);
+            
+            // --- FIX IS HERE ---
+            // Create a clean copy of the data for Supabase, removing client-only properties
+            const { isOffline, ...dataForSupabase } = data;
+            
+            // For new items, let Supabase generate the ID. Remove our temporary one.
+            if (!id || id.startsWith('offline_')) {
+                delete dataForSupabase.id;
+            }
+            
             let result;
             
             if (id && !id.startsWith('offline_')) {
@@ -257,7 +270,7 @@ async function saveDataToSupabase(table, data, id = null) {
                 console.log(`Updating record with ID: ${id}`);
                 const { data: resultData, error } = await supabase
                     .from(table)
-                    .update(data)
+                    .update(dataForSupabase) // Use the clean data
                     .eq('id', id)
                     .select();
                 
@@ -271,7 +284,7 @@ async function saveDataToSupabase(table, data, id = null) {
                 console.log(`Inserting new record into ${table}`);
                 const { data: resultData, error } = await supabase
                     .from(table)
-                    .insert(data)
+                    .insert(dataForSupabase) // Use the clean data
                     .select();
                 
                 if (error) {
@@ -280,7 +293,7 @@ async function saveDataToSupabase(table, data, id = null) {
                 }
                 result = resultData[0];
                 
-                // Update the local data with the real ID
+                // Update the local data with the real ID from Supabase
                 if (table === 'inventory') {
                     const index = inventory[data.section].findIndex(item => item.id === id);
                     if (index !== -1) {
@@ -298,7 +311,7 @@ async function saveDataToSupabase(table, data, id = null) {
             console.error(`Error saving to ${table}:`, error);
             showNotification(`Error saving to ${table}: ${error.message}`, 'error');
             
-            // Store for later sync
+            // Store for later sync (this part is okay)
             const pendingChanges = loadFromLocalStorage('pendingChanges', {});
             if (!pendingChanges[table]) pendingChanges[table] = {};
             
@@ -313,7 +326,7 @@ async function saveDataToSupabase(table, data, id = null) {
             return { id };
         }
     } else {
-        // Store for later sync
+        // Store for later sync (this part is okay)
         const pendingChanges = loadFromLocalStorage('pendingChanges', {});
         if (!pendingChanges[table]) pendingChanges[table] = {};
         
